@@ -5,15 +5,15 @@ export function setUpHandle(handle: HTTPHandle) {
   handle.initiateHealthCheckRoute();
   handle.app.locals.users = handle.app.locals.database.collection('users');
 
-  handle.createRoute('/users', (route: Route) => {
+  handle.createRoute('/', (route: Route) => {
     // Set middleware for each route endpoints
-    route.setGlobalMiddleware('(/users) logger', (req, res, next) => {
-      console.log('Middleware for /users');
+    route.setGlobalMiddleware('(/) logger', (req, res, next) => {
+      console.log('Middleware for /');
       next();
     })
 
     // Creare a new middleware
-    const authentification = route.createMiddleware('(/users) authentification', (req, res, next) => {
+    const authentification = route.createMiddleware('(/) authentification', (req, res, next) => {
       if (req.headers.authorization !== 'Bearer token') {
         return res.status(200).send(handle.createResponse(req, res, null, new ErrorResponse('Unauthorized', 403)));
       }
