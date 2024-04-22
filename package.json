@@ -10,6 +10,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "git": "link:github.com:shaynlink/y-backend-codebase.git"
+    "codebase": "github:shaynlink/y-backend-codebase",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "typescript": "^5.4.5",
+    "y-types": "github:shaynlink/y-types"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.7"
   }
 }
