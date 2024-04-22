@@ -1,0 +1,10 @@
+lockfileVersion: '6.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+dependencies:
+  git:
+    specifier: link:github.com:shaynlink/y-backend-codebase.git
+    version: link:github.com:shaynlink/y-backend-codebase.git
