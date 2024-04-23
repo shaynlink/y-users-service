@@ -30,17 +30,15 @@ export function setUpHandle(handle: HTTPHandle) {
     route.mapper.get(
       '/me',
       authentification,
-      (req, res) => {
-        return handle.createResponse(req, res, {
-          message: res.locals.users.findOne({ id: res.locals.user.id })
-        }, null);
+      async (req, res) => {
+        return  handle.createResponse(req, res, await res.locals.users.findOne({ id: res.locals.user.id }), null);
       });
 
     route.mapper.patch(
       '/me',
       authentification,
-      (req, res) => {
-        const user = res.locals.users.findOne({ id: res.locals.user.id });
+      async (req, res) => {
+        const user = await res.locals.users.findOne({ id: res.locals.user.id });
         const { name } = req.body;
 
         if (!name) {
@@ -48,38 +46,46 @@ export function setUpHandle(handle: HTTPHandle) {
         }
 
         user.name = name;
-        res.locals.users.updateOne({ id: res.locals.user.id }, user);
+        await res.locals.users.updateOne({ id: res.locals.user.id }, user);
 
-        return handle.createResponse(req, res, {
-          message: user
-        }, null);
+        return handle.createResponse(req, res, { user }, null);
       });
 
-    route.mapper.get(
-      '/me/following',
+    route.mapper.use(
       authentification,
-      (req, res) => {
-        return handle.createResponse(req, res, {
-          message: res.locals.users.findOne({ id: res.locals.user.id }).following
-        }, null);
+      async (req, res, next) => {
+        await handle.createResponse(req, res, await res.locals.users.findOne({ id: res.locals.user.id }), null);
+        next();
       });
-
+    route.mapper.get( 
+      '/me/following',
+    authentification,
+    async (req, res) => {
+      return handle.createResponse(req, res, await res.locals.users.findOne({ following: res.locals.user.following }), null);
+    });
+    
+    route.mapper.use(
+      authentification,
+      async (req, res, next) => {
+        await handle.createResponse(req, res, await res.locals.users.findOne({ id: res.locals.user.id }), null);
+        next();
+      });
     route.mapper.get(
       '/me/followers',
       authentification,
-      (req, res) => {
-        return handle.createResponse(req, res, {
-          message: res.locals.users.findOne({ id: res.locals.user.id }).followers
-        }, null);
+      async (req, res) => {
+        return handle.createResponse(req, res, 
+          await res.locals.users.findOne({ followers: res.locals.user.followers })
+        , null);
       });
 
     route.mapper.get(
       '/:id',
       authentification,
-      (req, res) => {
-        return handle.createResponse(req, res, {
-          message: res.locals.users.findOne({ id: req.params.id })
-        }, null);
+      async (req, res) => {
+        return handle.createResponse(req, res, 
+          await res.locals.users.findOne({ id: req.params.id })
+        , null);
       });
 
     route.mapper.get(
