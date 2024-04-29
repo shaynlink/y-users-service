@@ -29,8 +29,8 @@ async function bootstrap() {
 
   const client = await core.DBService.createClient();
 
-  const User = client.model<IUser, UserModel>('users', UserSchema);
-  const FollowInjuction = client.model<IFollowInjuction, FollowInjuctionModel>('followInjuctions', FollowInjuctionSchema);
+  const User = client.model<IUser, UserModel>('Users', UserSchema);
+  const FollowInjuction = client.model<IFollowInjuction, FollowInjuctionModel>('FollowInjuctions', FollowInjuctionSchema);
 
   const handle = core.HTTPService.handle;
   handle.app.locals.schema = {

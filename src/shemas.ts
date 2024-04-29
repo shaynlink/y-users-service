@@ -1,4 +1,4 @@
-import { Schema, Model } from 'mongoose'
+import mongoose, { Schema, Model } from 'mongoose'
 
 export interface IUser {
   username: string;
@@ -52,6 +52,24 @@ export const UserSchema = new Schema<IUser>({
     default: 'user',
     enum: ['user', 'admin'],
   },
+}, {
+  methods: {
+    follow(target: Schema.Types.ObjectId) {
+      const FollowInjuction = mongoose.model('FollowInjuctions');
+      return new FollowInjuction({
+        target: this._id,
+        source: target
+      }).save()
+    },
+    unfollow(target: Schema.Types.ObjectId) {
+      const FollowInjuction = mongoose.model('FollowInjuctions');
+      return FollowInjuction.deleteOne({
+        target: target,
+        source: this._id
+      })
+    }
+  
+  }
 })
 
 
@@ -61,9 +79,11 @@ export const FollowInjuctionSchema = new Schema<IFollowInjuction>({
   target: {
     type: Schema.Types.ObjectId,
     required: true,
+    ref: 'Users'
   },
   source: {
     type: Schema.Types.ObjectId,
     required: true,
+    ref: 'Users'
   },
 })

@@ -1,6 +1,6 @@
 import { ErrorResponse, HTTPHandle, Route } from 'codebase'
-import type { Model } from 'mongoose'
-import { FollowInjuctionSchema, UserSchema } from './shemas'
+import type { Model, ObjectId } from 'mongoose'
+import { FollowInjuctionSchema, IUser, UserSchema } from './shemas'
 import pkg from '../package.json'
 import axios from 'axios'
 import { AuthorizationVerifyResponse } from 'y-types/service'
@@ -9,7 +9,7 @@ import { Types, isValidObjectId } from 'mongoose'
 export function setUpHandle(handle: HTTPHandle) {
   handle.initiateHealthCheckRoute(pkg.version);
 
-  const User: Model<typeof UserSchema> = handle.app.locals.schema.User;
+  const User: Model<IUser> = handle.app.locals.schema.User;
   const FollowInjuction: Model<typeof FollowInjuctionSchema> = handle.app.locals.schema.FollowInjuction;
 
   handle.createRoute('/',(route: Route) => {
@@ -112,10 +112,28 @@ export function setUpHandle(handle: HTTPHandle) {
     route.mapper.route('/me')
       .get(async (req, res) => {
       try {
-        const user = await User
+        const userDoc = await User
           .findById(res.locals.userId)
           .select({ _id: 1, username: 1, email: 1 })
-          .exec() as unknown as typeof UserSchema;
+          .exec() as unknown as typeof UserSchema & { _doc: IUser };
+
+        if (!userDoc) {
+          return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
+        }
+
+        const following = await FollowInjuction
+          .countDocuments({ source: res.locals.userId })
+          .exec();
+        
+        const followers = await FollowInjuction
+          .countDocuments({ target: res.locals.userId })
+          .exec();
+
+        const user = {
+          ...userDoc._doc,
+          following,
+          followers
+        }
 
         return handle.createResponse(req, res, user, null);
       } catch (error) {
@@ -134,14 +152,14 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) * parseInt(req.query.limit as string);
+        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ source: res.locals.userId })
-          .select({ target: 1 })
+          .select({ _id: 1, target: 1 })
           .skip(skip)
           .limit(parseInt(req.query.limit as string))
-          .exec() as unknown as { target: Types.ObjectId }[];
+          .exec() as unknown as typeof FollowInjuctionSchema & { target: Types.ObjectId }[];
 
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ target }) => target) } })
@@ -165,7 +183,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) * parseInt(req.query.limit as string);
+        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ target: res.locals.userId })
@@ -198,10 +216,24 @@ export function setUpHandle(handle: HTTPHandle) {
 
         const id = Types.ObjectId.createFromHexString(req.params.id);
 
-        const user = await User
+        const userDoc = await User
           .findById(id)
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema;
+          .exec() as unknown as typeof UserSchema & { _doc: IUser & { _id: ObjectId } };
+
+        const following = await FollowInjuction
+          .countDocuments({ source: userDoc._doc._id })
+          .exec();
+        
+        const followers = await FollowInjuction
+          .countDocuments({ target: userDoc._doc._id })
+          .exec();
+
+        const user = {
+          ...userDoc._doc,
+          following,
+          followers
+        }
 
         return handle.createResponse(req, res, user, null);
       } catch (error) {
@@ -230,14 +262,16 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) * parseInt(req.query.limit as string);
+        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ source: id })
-          .select({ target: 1 })
+          .select({ _id: 1, target: 1 })
           .skip(skip)
           .limit(parseInt(req.query.limit as string))
           .exec() as unknown as { target: Types.ObjectId }[];
+
+        console.log(followInjuctions);
 
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ target }) => target) } })
@@ -271,7 +305,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) * parseInt(req.query.limit as string);
+        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ target: id })
@@ -310,8 +344,8 @@ export function setUpHandle(handle: HTTPHandle) {
           }
 
           const user = await User
-            .exists({ _id: id })
-            .exec();
+            .findById(id)
+            .exec() as unknown as typeof UserSchema & { follow: (userId: Types.ObjectId) => Promise<typeof FollowInjuctionSchema> };
 
           if (!user) {
             return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
@@ -322,7 +356,7 @@ export function setUpHandle(handle: HTTPHandle) {
             .exec() as unknown as typeof FollowInjuctionSchema;
           
           if (!followInjuction) {
-            await new FollowInjuction({ source: res.locals.userId, target: id }).save();
+            await user.follow(res.locals.userId) as unknown as typeof FollowInjuctionSchema;
             return res.status(204).end();
           }
 
@@ -349,23 +383,14 @@ export function setUpHandle(handle: HTTPHandle) {
           }
 
           const user = await User
-            .exists({ _id: id })
-            .exec();
+            .findById(id)
+            .exec() as unknown as typeof UserSchema & { unfollow: (userId: Types.ObjectId) => Promise<void> };
 
           if (!user) {
             return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
           }
 
-          const followInjuction = await FollowInjuction
-            .findOne({ source: res.locals.userId, target: id })
-            .select({ _id: 1 })
-            .exec() as unknown as { _id: Types.ObjectId };
-          
-          if (!followInjuction) {
-            return handle.createResponse(req, res, null, new ErrorResponse('Not following user', 400));
-          }
-
-          await FollowInjuction.deleteOne({ _id: followInjuction._id })
+          await user.unfollow(res.locals.userId);
 
           return res.status(204).end();
         } catch (error) {
