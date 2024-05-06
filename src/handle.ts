@@ -117,7 +117,7 @@ export function setUpHandle(handle: HTTPHandle) {
         try {
           const userDoc = await User
             .findById(res.locals.userId)
-            .select({ _id: 1, username: 1, email: 1 })
+            .select({ _id: 1, username: 1, email: 1, picture: 1 })
             .exec();
 
           if (!userDoc) {
@@ -350,7 +350,7 @@ export function setUpHandle(handle: HTTPHandle) {
 
         const userDoc = await User
           .findById(id)
-          .select({ _id: 1, username: 1 })
+          .select({ _id: 1, username: 1, picture: 1 })
           .exec();
 
         if (!userDoc) {
