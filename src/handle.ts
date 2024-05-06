@@ -1,16 +1,19 @@
 import { ErrorResponse, HTTPHandle, Route } from 'codebase'
-import type { Model, ObjectId } from 'mongoose'
-import { FollowInjuctionSchema, IUser, UserSchema } from './shemas'
+import { UserModel, FollowInjuctionModel } from './schema'
 import pkg from '../package.json'
 import axios from 'axios'
 import { AuthorizationVerifyResponse } from 'y-types/service'
 import { Types, isValidObjectId } from 'mongoose'
+import multer from 'multer'
+import { Storage } from '@google-cloud/storage'
+import { v4 } from 'uuid'
+import { format } from 'node:util'
 
 export function setUpHandle(handle: HTTPHandle) {
   handle.initiateHealthCheckRoute(pkg.version);
 
-  const User: Model<IUser> = handle.app.locals.schema.User;
-  const FollowInjuction: Model<typeof FollowInjuctionSchema> = handle.app.locals.schema.FollowInjuction;
+  const User: UserModel = handle.app.locals.schema.User;
+  const FollowInjuction: FollowInjuctionModel = handle.app.locals.schema.FollowInjuction;
 
   handle.createRoute('/',(route: Route) => {
     route.setGlobalMiddleware('Verify jwt token', async (req, res, next) => {
@@ -36,7 +39,7 @@ export function setUpHandle(handle: HTTPHandle) {
           .catch((e) => e.response);
 
         if (response.status !== 200) {
-          throw new Error('Unable to create user');
+          throw new Error('Unable to verify user');
         }
 
         if (response.data.error) {
@@ -111,36 +114,165 @@ export function setUpHandle(handle: HTTPHandle) {
 
     route.mapper.route('/me')
       .get(async (req, res) => {
-      try {
-        const userDoc = await User
-          .findById(res.locals.userId)
-          .select({ _id: 1, username: 1, email: 1 })
-          .exec() as unknown as typeof UserSchema & { _doc: IUser };
+        try {
+          const userDoc = await User
+            .findById(res.locals.userId)
+            .select({ _id: 1, username: 1, email: 1 })
+            .exec();
 
-        if (!userDoc) {
+          if (!userDoc) {
+            return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
+          }
+
+          const following = await FollowInjuction
+            .countDocuments({ source: res.locals.userId })
+            .exec();
+          
+          const followers = await FollowInjuction
+            .countDocuments({ target: res.locals.userId })
+            .exec();
+
+          const user = {
+            ...userDoc.toObject(),
+            following,
+            followers
+          }
+
+          return handle.createResponse(req, res, user, null);
+        } catch (error) {
+          console.error(error);
+          return handle.createResponse(req, res, null, new ErrorResponse('Unable to get user', 500));
+        }
+      })
+      .post(async (req, res) => {
+        try {
+          const user = await User
+            .findById(res.locals.userId)
+            .select({ _id: 1, username: 1, email: 1, picture: 1 })
+            .exec();
+
+          if (!user) {
+            return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
+          }
+
+
+          if (req.body.username) {
+            user.username = req.body.username
+          }
+
+          if (req.body.email) {
+            user.email = req.body.email;
+          }
+
+          const error = user.validateSync();
+
+          if (error) {
+            return handle.createResponse(req, res, null, new ErrorResponse('Invalid fields', 400, error.errors));
+          }
+
+          await user.save({
+            validateBeforeSave: true
+          })
+
+          return handle.createResponse(req, res, user, null);
+        } catch (error: any) {
+          console.error(error);
+          if (error?.code === 11000) {
+            return handle.createResponse(req, res, null,
+              new ErrorResponse(
+                `Fields already used`,
+                400,
+                {
+                  code: 11000,
+                  keyPattern: error.keyPattern
+                }
+              )
+            )
+          }
+          return handle.createResponse(req, res, null, new ErrorResponse('Unable to modify user', 500));
+        }
+      })
+
+    const storage = new Storage();
+
+    const uploadHandler = multer({
+      storage: multer.memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024
+      }
+    });
+
+    if (!process.env.GCLOUD_STORAGE_BUCKET) {
+      throw new Error('Missing google cloud storage bucket');
+    }
+
+    const bucket = storage.bucket(process.env.GCLOUD_STORAGE_BUCKET);
+
+    route.mapper.post(
+      '/me/picture',
+      uploadHandler.single('file'),
+      async (req, res, next) => {
+        if (!req.file) {
+          return handle.createResponse(req, res, null, new ErrorResponse('Missing files', 400));
+        }
+
+        const user = await User
+        .findById(res.locals.userId)
+        .exec();
+
+        if (!user) {
           return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
         }
 
-        const following = await FollowInjuction
-          .countDocuments({ source: res.locals.userId })
-          .exec();
+        const discriminator = v4();
         
-        const followers = await FollowInjuction
-          .countDocuments({ target: res.locals.userId })
-          .exec();
-
-        const user = {
-          ...userDoc._doc,
-          following,
-          followers
+        let ext = req.file.originalname.split('.').pop();
+        
+        if (!ext) {
+          switch (req.file.mimetype) {
+            case 'image/jpeg':
+              ext = 'jpeg';
+              break;
+            case 'image/png':
+              ext = 'png';
+              break;
+            case 'image/gif':
+              ext = 'gif';
+              break;
+            case 'image/webp':
+              ext = 'webp';
+              break;
+            default:
+              return handle.createResponse(req, res, null, new ErrorResponse('Unsupported file type', 400));
+          }
         }
 
-        return handle.createResponse(req, res, user, null);
-      } catch (error) {
-        console.error(error);
-        return handle.createResponse(req, res, null, new ErrorResponse('Unable to get user', 500));
-      }
-      });
+        const fileName = `${discriminator}.${ext}`
+
+        const blob = bucket.file(`${user._id}/${fileName}`);
+        const blobStream = blob.createWriteStream();
+
+        blobStream.on('error', (error) => {
+          next(error);
+        });
+
+        blobStream.on('finish', async () => {
+          const publicUrl = format(
+            `https://storage.googleapis.com/${bucket.name}/${blob.name}`
+          );
+
+          user.picture = fileName;
+          await user.save();
+
+          return handle.createResponse(req, res, { url: publicUrl }, null);
+        });
+
+        blobStream.end(req.file.buffer);
+      },
+      // Error handler
+      async (req, res) => {
+        return handle.createResponse(req, res, null, new ErrorResponse('Unable to upload picture', 500));
+      })
 
     route.mapper.get('/me/following', async (req, res) => {
       try {
@@ -159,12 +291,12 @@ export function setUpHandle(handle: HTTPHandle) {
           .select({ _id: 1, target: 1 })
           .skip(skip)
           .limit(parseInt(req.query.limit as string))
-          .exec() as unknown as typeof FollowInjuctionSchema & { target: Types.ObjectId }[];
+          .exec();
 
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ target }) => target) } })
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema[];
+          .exec();
 
         return handle.createResponse(req, res, users, null);
       } catch (error) {
@@ -195,7 +327,7 @@ export function setUpHandle(handle: HTTPHandle) {
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ source }) => source) } })
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema[];
+          .exec();
 
         return handle.createResponse(req, res, users, null);
       } catch (error) {
@@ -219,18 +351,22 @@ export function setUpHandle(handle: HTTPHandle) {
         const userDoc = await User
           .findById(id)
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema & { _doc: IUser & { _id: ObjectId } };
+          .exec();
+
+        if (!userDoc) {
+          return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
+        }
 
         const following = await FollowInjuction
-          .countDocuments({ source: userDoc._doc._id })
+          .countDocuments({ source: userDoc._id })
           .exec();
         
         const followers = await FollowInjuction
-          .countDocuments({ target: userDoc._doc._id })
+          .countDocuments({ target: userDoc._id })
           .exec();
 
         const user = {
-          ...userDoc._doc,
+          ...userDoc,
           following,
           followers
         }
@@ -271,12 +407,10 @@ export function setUpHandle(handle: HTTPHandle) {
           .limit(parseInt(req.query.limit as string))
           .exec() as unknown as { target: Types.ObjectId }[];
 
-        console.log(followInjuctions);
-
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ target }) => target) } })
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema[];
+          .exec();
 
         return handle.createResponse(req, res, users, null);
       } catch (error) {
@@ -317,7 +451,7 @@ export function setUpHandle(handle: HTTPHandle) {
         const users = await User
           .find({ _id: { $in: followInjuctions.map(({ source }) => source) } })
           .select({ _id: 1, username: 1 })
-          .exec() as unknown as typeof UserSchema[];
+          .exec();
 
         return handle.createResponse(req, res, users, null);
       } catch (error) {
@@ -345,7 +479,7 @@ export function setUpHandle(handle: HTTPHandle) {
 
           const user = await User
             .findById(id)
-            .exec() as unknown as typeof UserSchema & { follow: (userId: Types.ObjectId) => Promise<typeof FollowInjuctionSchema> };
+            .exec();
 
           if (!user) {
             return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));
@@ -353,10 +487,10 @@ export function setUpHandle(handle: HTTPHandle) {
 
           const followInjuction = await FollowInjuction
             .findOne({ source: res.locals.userId, target: id })
-            .exec() as unknown as typeof FollowInjuctionSchema;
+            .exec();
           
           if (!followInjuction) {
-            await user.follow(res.locals.userId) as unknown as typeof FollowInjuctionSchema;
+            await user.follow(res.locals.userId);
             return res.status(204).end();
           }
 
@@ -384,7 +518,7 @@ export function setUpHandle(handle: HTTPHandle) {
 
           const user = await User
             .findById(id)
-            .exec() as unknown as typeof UserSchema & { unfollow: (userId: Types.ObjectId) => Promise<void> };
+            .exec();
 
           if (!user) {
             return handle.createResponse(req, res, null, new ErrorResponse('User not found', 404));

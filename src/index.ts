@@ -2,13 +2,13 @@ import 'dotenv/config'
 import Core from 'codebase'
 import { setUpHandle } from './handle';
 import {
-  IUser,
-  UserModel,
   UserSchema,
-  IFollowInjuction,
-  FollowInjuctionModel,
   FollowInjuctionSchema
-} from './shemas';
+} from './schemas';
+import type {
+  UserSchema as IUserSchema,
+  FollowInjuctionSchema as IFollowInjuctionSchema
+} from './schema';
 
 const CERTIFICATE_KEY = 'DB_CERTIFICATE';
 const CERTIFICATE_DATABASE_NAME = process.env.CERTIFICATE_DATABASE_NAME;
@@ -29,8 +29,8 @@ async function bootstrap() {
 
   const client = await core.DBService.createClient();
 
-  const User = client.model<IUser, UserModel>('Users', UserSchema);
-  const FollowInjuction = client.model<IFollowInjuction, FollowInjuctionModel>('FollowInjuctions', FollowInjuctionSchema);
+  const User = client.model<IUserSchema>('Users', UserSchema);
+  const FollowInjuction = client.model<IFollowInjuctionSchema>('FollowInjuctions', FollowInjuctionSchema);
 
   const handle = core.HTTPService.handle;
   handle.app.locals.schema = {
