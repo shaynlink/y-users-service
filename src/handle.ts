@@ -284,7 +284,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
+        const skip = (parseInt(req.query.page as string) - 1) * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ source: res.locals.userId })
@@ -315,7 +315,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
+        const skip = (parseInt(req.query.page as string) - 1) * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ target: res.locals.userId })
@@ -398,7 +398,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
+        const skip = (parseInt(req.query.page as string) - 1) * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ source: id })
@@ -439,7 +439,7 @@ export function setUpHandle(handle: HTTPHandle) {
           return handle.createResponse(req, res, null, new ErrorResponse('Missing query page', 400));
         }
 
-        const skip = parseInt(req.query.page as string) - 1 * parseInt(req.query.limit as string);
+        const skip = (parseInt(req.query.page as string) - 1) * parseInt(req.query.limit as string);
 
         const followInjuctions = await FollowInjuction
           .find({ target: id })
